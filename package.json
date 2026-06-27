@@ -1,0 +1,13 @@
+{
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "backend": "uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8001",
+    "backup": "python3 -m backend.app.backup create --kind auto",
+    "backup:daily": "python3 -m backend.app.backup create --kind daily",
+    "backup:weekly": "python3 -m backend.app.backup create --kind weekly",
+    "backup:pre-update": "python3 -m backend.app.backup create --kind pre-update",
+    "backup:restore": "python3 -m backend.app.backup restore"
+  }
+}

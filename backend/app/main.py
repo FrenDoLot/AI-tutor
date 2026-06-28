@@ -19,7 +19,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, EmailStr, Field
 
-from backend.app.backup import start_backup_scheduler
+from .backup import start_backup_scheduler
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_FILE = BASE_DIR / "data" / "ai_tutor.sqlite3"

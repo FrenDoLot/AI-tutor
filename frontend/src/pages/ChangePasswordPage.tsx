@@ -13,12 +13,27 @@ export function ChangePasswordPage({
 }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
+
+    if (!currentPassword.trim()) {
+      setError("Введите временный пароль");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError("Новый пароль должен содержать минимум 8 символов");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Новый пароль и подтверждение не совпадают");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -61,6 +76,7 @@ export function ChangePasswordPage({
             onChange={(event) => setCurrentPassword(event.target.value)}
             placeholder="Временный пароль"
             type="password"
+            autoComplete="current-password"
           />
         </label>
         <label className="auth-field">
@@ -70,6 +86,17 @@ export function ChangePasswordPage({
             onChange={(event) => setNewPassword(event.target.value)}
             placeholder="Новый пароль"
             type="password"
+            autoComplete="new-password"
+          />
+        </label>
+        <label className="auth-field">
+          <Lock size={18} />
+          <input
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            placeholder="Повторите новый пароль"
+            type="password"
+            autoComplete="new-password"
           />
         </label>
 

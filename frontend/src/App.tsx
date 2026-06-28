@@ -54,7 +54,15 @@ export function App() {
       />
       <Route
         path="/change-password"
-        element={user ? <ChangePasswordPage user={user} onUserChange={setUser} /> : <Navigate to="/login" replace />}
+        element={
+          !user ? (
+            <Navigate to="/login" replace />
+          ) : user.mustChangePassword ? (
+            <ChangePasswordPage user={user} onUserChange={setUser} />
+          ) : (
+            <Navigate to={homePath} replace />
+          )
+        }
       />
       <Route
         path="/expired"

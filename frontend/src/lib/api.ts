@@ -9,6 +9,34 @@ import type {
 } from "../types";
 
 const TOKEN_KEY = "ai_tutor_token";
+const DEFAULT_MESSAGE_USAGE = {
+  used: 0,
+  limit: 30,
+  remaining: 30,
+  warningAfter: 25,
+  showWarning: false,
+  resetDate: new Date().toISOString().slice(0, 10)
+};
+const DEFAULT_SETTINGS = {
+  theme: "dark",
+  language: "ru",
+  answerLength: "balanced",
+  simpleLanguage: true,
+  moreExamples: true,
+  morePractice: false,
+  autoTitle: true
+};
+
+function normalizeUser(user: User): User {
+  return {
+    ...user,
+    messageUsage: user.messageUsage ?? DEFAULT_MESSAGE_USAGE,
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...(user.settings ?? {})
+    }
+  };
+}
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -55,7 +83,7 @@ export async function loginUser(email: string, password: string) {
     body: JSON.stringify({ email, password })
   });
   setToken(response.token);
-  return response.user;
+  return normalizeUser(response.user);
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {
@@ -65,7 +93,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
     body: JSON.stringify({ currentPassword, newPassword })
   });
   setToken(response.token);
-  return response.user;
+  return normalizeUser(response.user);
 }
 
 export async function requestPasswordReset(email: string): Promise<{ ok: boolean; resetToken?: string }> {
@@ -93,7 +121,7 @@ export async function logoutUser() {
 }
 
 export async function getCurrentUser(): Promise<User> {
-  return request<User>("/api/me");
+  return request<User>("/api/me").then(normalizeUser);
 }
 
 export async function updateSettings(settings: UserSettings): Promise<UserSettings> {
@@ -109,7 +137,7 @@ export async function updateProfile(name: string, avatar: string | null): Promis
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, avatar })
-  });
+  }).then(normalizeUser);
 }
 
 export async function clearHistory(): Promise<{ ok: boolean }> {

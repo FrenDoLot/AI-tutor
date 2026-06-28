@@ -19,7 +19,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, EmailStr, Field
 
-from app.backup import start_backup_scheduler
+from backend.app.backup import start_backup_scheduler
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DB_FILE = BASE_DIR / "data" / "ai_tutor.sqlite3"
@@ -839,12 +839,12 @@ def change_password(
     user: UserPublic = Depends(get_current_user),
 ) -> AuthResponse:
     if len(payload.new_password) < 8:
-        raise HTTPException(status_code=400, detail="Password must contain at least 8 characters")
+        raise HTTPException(status_code=400, detail="Новый пароль должен содержать минимум 8 символов")
 
     with connect_db() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user.id,)).fetchone()
         if row is None or not verify_password(payload.current_password, row["password_hash"]):
-            raise HTTPException(status_code=401, detail="Invalid current password")
+            raise HTTPException(status_code=401, detail="Текущий или временный пароль указан неверно")
 
         conn.execute(
             """

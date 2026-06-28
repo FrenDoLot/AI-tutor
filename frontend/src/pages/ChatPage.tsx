@@ -162,7 +162,7 @@ export function ChatPage({
 
     const now = new Date().toISOString();
     const optimisticUserMessage: Message = {
-      id: crypto.randomUUID(),
+      id: crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       role: "user",
       content,
       createdAt: now,

@@ -49,7 +49,7 @@ MIME_TYPES = {
 
 load_dotenv()
 MIMO_BASE_URL = os.getenv("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1")
-MIMO_MODEL = os.getenv("MIMO_MODEL", "mimo-v2.5-pro")
+MIMO_MODEL = os.getenv("MIMO_MODEL", "mimo-v2.5")
 MIMO_TEMPERATURE = float(os.getenv("MIMO_TEMPERATURE", "0.75"))
 MIMO_TOP_P = float(os.getenv("MIMO_TOP_P", "0.95"))
 MIMO_MAX_COMPLETION_TOKENS = int(os.getenv("MIMO_MAX_COMPLETION_TOKENS", "2048"))
@@ -824,7 +824,12 @@ def build_ai_prompt(
             text_content = decode_text_upload(upload)
             if text_content:
                 text_parts.append(f"Содержимое файла `{upload.filename}`:\n{text_content}")
-            elif upload.extension not in {"png", "jpg", "jpeg"}:
+            elif upload.extension in {"png", "jpg", "jpeg"}:
+                text_parts.append(
+                    f"Пользователь прикрепил изображение `{upload.filename}`, "
+                    f"но текущая модель не поддерживает анализ изображений."
+                )
+            else:
                 text_parts.append(
                     f"Файл `{upload.filename}` приложен к сообщению как документ "
                     f"с MIME-типом `{upload.mime_type}` и размером {len(upload.data)} байт."
@@ -919,12 +924,13 @@ class MiMoProvider(AIProvider):
 
         for upload in uploads:
             if upload.extension in {"png", "jpg", "jpeg"}:
-                content_parts.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": build_data_url(upload)},
-                    }
-                )
+                if include_documents:
+                    content_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": build_data_url(upload)},
+                        }
+                    )
             else:
                 text_content = decode_text_upload(upload)
                 if text_content:

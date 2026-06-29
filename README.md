@@ -211,7 +211,7 @@ npm run preview
 
 ```env
 MIMO_API_KEY=
-MIMO_MODEL=mimo-v2.5-pro
+MIMO_MODEL=mimo-v2.5
 MIMO_BASE_URL=https://api.xiaomimimo.com/v1
 MIMO_TEMPERATURE=0.75
 MIMO_TOP_P=0.95
@@ -224,7 +224,7 @@ ADMIN_NAME=Administrator
 ```
 
 - `MIMO_API_KEY` — API-ключ Xiaomi MiMo. Обязателен для генерации ответов.
-- `MIMO_MODEL` — модель MiMo. Если не указана, используется `mimo-v2.5-pro`.
+- `MIMO_MODEL` — модель MiMo. Если не указана, используется `mimo-v2.5`.
 - `MIMO_BASE_URL` — OpenAI-compatible endpoint MiMo. По умолчанию `https://api.xiaomimimo.com/v1`.
 - `MIMO_TEMPERATURE` — температура генерации.
 - `MIMO_TOP_P` — nucleus sampling.

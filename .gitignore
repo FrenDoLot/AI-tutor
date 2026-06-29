@@ -1,12 +1,3 @@
-backend/backups/
-backend/data/backup.log
-backend/data/backup.lock
-backend/data/backup_state.json
-__pycache__/
-*.pyc
-frontend/dist/
-frontend/node_modules/
-
 # Secrets
 .env
 .env.*
@@ -41,8 +32,6 @@ backend/data/backup_state.json
 # macOS
 .DS_Store
 
-# VS Code
-.vscode/
-
 # IDE
+.vscode/
 .idea/

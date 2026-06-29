@@ -5,7 +5,7 @@ import { ArrowDown, Clock, Menu, Search, Sparkles, X } from "lucide-react";
 import { ChatInput } from "../components/ChatInput";
 import { MessageBubble } from "../components/MessageBubble";
 import { Sidebar } from "../components/Sidebar";
-import { clearToken, createChat, getCurrentUser, getChats, logoutUser, sendMessage } from "../lib/api";
+import { createChat, getCurrentUser, getChats, logoutUser, sendMessage } from "../lib/api";
 import type { Chat, Message, User } from "../types";
 
 export function ChatPage({
@@ -62,8 +62,6 @@ export function ChatPage({
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Не удалось загрузить чаты");
-        clearToken();
-        onUserChange(null);
       });
   }, [onUserChange]);
 

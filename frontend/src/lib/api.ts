@@ -9,14 +9,16 @@ import type {
 } from "../types";
 
 const TOKEN_KEY = "ai_tutor_token";
-const DEFAULT_MESSAGE_USAGE = {
-  used: 0,
-  limit: 30,
-  remaining: 30,
-  warningAfter: 25,
-  showWarning: false,
-  resetDate: new Date().toISOString().slice(0, 10)
-};
+function getDefaultMessageUsage() {
+  return {
+    used: 0,
+    limit: 30,
+    remaining: 30,
+    warningAfter: 25,
+    showWarning: false,
+    resetDate: new Date().toISOString().slice(0, 10)
+  };
+}
 const DEFAULT_SETTINGS = {
   theme: "dark",
   language: "ru",
@@ -30,7 +32,7 @@ const DEFAULT_SETTINGS = {
 function normalizeUser(user: User): User {
   return {
     ...user,
-    messageUsage: user.messageUsage ?? DEFAULT_MESSAGE_USAGE,
+    messageUsage: user.messageUsage ?? getDefaultMessageUsage(),
     settings: {
       ...DEFAULT_SETTINGS,
       ...(user.settings ?? {})

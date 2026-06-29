@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import os
@@ -7,16 +8,18 @@ import secrets
 import shutil
 import sqlite3
 import uuid
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
+from contextlib import asynccontextmanager
+
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from google import genai
-from google.genai import types
+from openai import OpenAI
 from pydantic import BaseModel, EmailStr, Field
 
 from .backup import start_backup_scheduler
@@ -45,7 +48,13 @@ MIME_TYPES = {
 }
 
 load_dotenv()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MIMO_BASE_URL = os.getenv("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1")
+MIMO_MODEL = os.getenv("MIMO_MODEL", "mimo-v2.5-pro")
+MIMO_TEMPERATURE = float(os.getenv("MIMO_TEMPERATURE", "0.75"))
+MIMO_TOP_P = float(os.getenv("MIMO_TOP_P", "0.95"))
+MIMO_MAX_COMPLETION_TOKENS = int(os.getenv("MIMO_MAX_COMPLETION_TOKENS", "2048"))
+MIMO_THINKING = os.getenv("MIMO_THINKING", "1").lower() not in {"0", "false", "no"}
+MIMO_STREAM = os.getenv("MIMO_STREAM", "0").lower() in {"1", "true", "yes"}
 
 SYSTEM_PROMPT = """
 Ты — AI Tutor.
@@ -224,7 +233,13 @@ class PasswordResetResponse(BaseModel):
     reset_token: str | None = Field(default=None, alias="resetToken")
 
 
-app = FastAPI(title="AI Tutor API")
+@asynccontextmanager
+async def lifespan(app):
+    init_db()
+    start_backup_scheduler()
+    yield
+
+app = FastAPI(title="AI Tutor API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -335,11 +350,6 @@ def init_db() -> None:
         seed_app_settings(conn)
         seed_admin(conn)
 
-
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
-    start_backup_scheduler()
 
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -488,7 +498,6 @@ def ensure_message_limit_available(conn: sqlite3.Connection, user_id: str) -> Me
 
 def increment_message_usage(conn: sqlite3.Connection, user_id: str) -> MessageUsage:
     today = current_usage_date()
-    get_message_usage(conn, user_id)
     conn.execute(
         """
         UPDATE daily_message_usage
@@ -506,8 +515,11 @@ def generate_temporary_password() -> str:
 
 def seed_admin(conn: sqlite3.Connection) -> None:
     admin_email = os.getenv("ADMIN_EMAIL", "admin@aitutorapp.com").lower().strip()
-    admin_password = os.getenv("ADMIN_PASSWORD", "TutorAdmin!2026#Q7m9")
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
     admin_name = os.getenv("ADMIN_NAME", "Administrator")
+
+    if not admin_password:
+        return
 
     existing = conn.execute("SELECT id FROM users WHERE email = ?", (admin_email,)).fetchone()
     if existing:
@@ -766,20 +778,32 @@ def format_history(messages: list[Message]) -> str:
     return "\n\n".join(lines)
 
 
-def generate_ai_answer(
+def decode_text_upload(upload: PreparedUpload) -> str | None:
+    if upload.extension != "txt":
+        return None
+
+    for encoding in ("utf-8", "utf-8-sig", "cp1251"):
+        try:
+            return upload.data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return upload.data.decode("utf-8", errors="replace")
+
+
+def build_data_url(upload: PreparedUpload) -> str:
+    encoded = base64.b64encode(upload.data).decode("ascii")
+    return f"data:{upload.mime_type};base64,{encoded}"
+
+
+def build_ai_prompt(
     chat: Chat,
     user_message: Message,
     settings: UserSettings,
     uploads: list[PreparedUpload],
+    include_file_fallback: bool,
 ) -> str:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        return (
-            "Не вижу `GEMINI_API_KEY` в окружении, поэтому не могу обратиться к Gemini. "
-            "Добавь ключ в `.env` и перезапусти backend."
-        )
-
-    prompt = f"""
+    text_parts = [
+        f"""
 Настройки пользователя:
 {format_settings(settings)}
 
@@ -793,27 +817,174 @@ def generate_ai_answer(
 Если приложены документы, используй их как главный источник ответа.
 Ответь на последнее сообщение пользователя как AI Tutor. Не используй историю других чатов.
 """.strip()
+    ]
 
-    try:
-        client = genai.Client(api_key=api_key)
-        contents: list[types.Part] = [types.Part.from_text(text=prompt)]
+    if include_file_fallback:
         for upload in uploads:
-            contents.append(types.Part.from_text(text=f"Файл: {upload.filename}"))
-            contents.append(types.Part.from_bytes(data=upload.data, mime_type=upload.mime_type))
+            text_content = decode_text_upload(upload)
+            if text_content:
+                text_parts.append(f"Содержимое файла `{upload.filename}`:\n{text_content}")
+            elif upload.extension not in {"png", "jpg", "jpeg"}:
+                text_parts.append(
+                    f"Файл `{upload.filename}` приложен к сообщению как документ "
+                    f"с MIME-типом `{upload.mime_type}` и размером {len(upload.data)} байт."
+                )
 
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0.75,
-                top_p=0.95,
-            ),
+    return "\n\n".join(text_parts)
+
+
+class AIProvider(ABC):
+    @abstractmethod
+    def generate_answer(
+        self,
+        chat: Chat,
+        user_message: Message,
+        settings: UserSettings,
+        uploads: list[PreparedUpload],
+    ) -> str:
+        raise NotImplementedError
+
+
+class MiMoProvider(AIProvider):
+    def __init__(self) -> None:
+        self.api_key = os.getenv("MIMO_API_KEY") or os.getenv("XIAOMI_MIMO_API_KEY")
+        self.client = (
+            OpenAI(
+                api_key=self.api_key,
+                base_url=MIMO_BASE_URL,
+                default_headers={"api-key": self.api_key},
+            )
+            if self.api_key
+            else None
         )
-    except Exception as exc:
-        return f"Не получилось получить ответ Gemini: {exc}"
 
-    return (response.text or "").strip() or "Не получилось сформировать ответ. Попробуй переформулировать вопрос."
+    def generate_answer(
+        self,
+        chat: Chat,
+        user_message: Message,
+        settings: UserSettings,
+        uploads: list[PreparedUpload],
+    ) -> str:
+        if self.client is None:
+            return (
+                "Не вижу `MIMO_API_KEY` в окружении, поэтому не могу обратиться к Xiaomi MiMo. "
+                "Добавь ключ в `.env` и перезапусти backend."
+            )
+
+        messages_with_files = self._build_messages(
+            chat,
+            user_message,
+            settings,
+            uploads,
+            include_documents=True,
+        )
+
+        try:
+            return self._request(messages_with_files)
+        except Exception as exc:
+            if uploads:
+                try:
+                    fallback_messages = self._build_messages(
+                        chat,
+                        user_message,
+                        settings,
+                        uploads,
+                        include_documents=False,
+                    )
+                    return self._request(fallback_messages)
+                except Exception:
+                    pass
+            return f"Не получилось получить ответ Xiaomi MiMo: {exc}"
+
+    def _build_messages(
+        self,
+        chat: Chat,
+        user_message: Message,
+        settings: UserSettings,
+        uploads: list[PreparedUpload],
+        include_documents: bool,
+    ) -> list[dict]:
+        content_parts: list[dict] = [
+            {
+                "type": "text",
+                "text": build_ai_prompt(
+                    chat,
+                    user_message,
+                    settings,
+                    uploads,
+                    include_file_fallback=not include_documents,
+                ),
+            }
+        ]
+
+        for upload in uploads:
+            if upload.extension in {"png", "jpg", "jpeg"}:
+                content_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": build_data_url(upload)},
+                    }
+                )
+            else:
+                text_content = decode_text_upload(upload)
+                if text_content:
+                    content_parts.append(
+                        {
+                            "type": "text",
+                            "text": f"Содержимое файла `{upload.filename}`:\n{text_content}",
+                        }
+                    )
+                elif include_documents:
+                    content_parts.append(
+                        {
+                            "type": "file",
+                            "file": {
+                                "filename": upload.filename,
+                                "file_data": build_data_url(upload),
+                            },
+                        }
+                    )
+
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": content_parts},
+        ]
+
+    def _request(self, messages: list[dict]) -> str:
+        extra_body = {"thinking": True} if MIMO_THINKING else None
+        response = self.client.chat.completions.create(
+            model=MIMO_MODEL,
+            messages=messages,
+            temperature=MIMO_TEMPERATURE,
+            top_p=MIMO_TOP_P,
+            max_completion_tokens=MIMO_MAX_COMPLETION_TOKENS,
+            stream=MIMO_STREAM,
+            extra_body=extra_body,
+        )
+
+        if MIMO_STREAM:
+            chunks: list[str] = []
+            for chunk in response:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    chunks.append(delta.content)
+            text = "".join(chunks)
+        else:
+            text = response.choices[0].message.content or ""
+
+        return text.strip() or "Не получилось сформировать ответ. Попробуй переформулировать вопрос."
+
+
+ai_provider: AIProvider = MiMoProvider()
+
+
+def generate_ai_answer(
+    chat: Chat,
+    user_message: Message,
+    settings: UserSettings,
+    uploads: list[PreparedUpload],
+) -> str:
+    return ai_provider.generate_answer(chat, user_message, settings, uploads)
 
 
 @app.post("/api/auth/register")
